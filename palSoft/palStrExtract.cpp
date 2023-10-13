@@ -3,14 +3,11 @@
 #pragma warning(disable:6387 6031 6054)
 
 #include "palDefine.h"
+#include "palFunc.h"
 #include "palUtils.h"
 
-/**
- * @brief 通过script.src和text.dat导出文本
- * @param source script.src和text.dat的所在路径
- * @param extractPath 导出文本的生成路径
- * @return
-*/
+#include <ShlObj.h>
+
 bool palStringExtract(char const* const source, char const* const extractPath)
 {
 	if (!source || !extractPath) return false;
@@ -195,8 +192,16 @@ bool palStringExtract(char const* const source, char const* const extractPath)
 
 	};
 
-	if (hoverFile) fclose(hoverFile);
-	if (selectFile) fclose(selectFile);
+	if (hoverFile)
+	{
+		extractCount++;
+		fclose(hoverFile);
+	}
+	if (selectFile)
+	{
+		extractCount++;
+		fclose(selectFile);
+	}
 	if (scenarioFile) fclose(scenarioFile);
 	fclose(textDat);
 	fclose(scriptSrc);

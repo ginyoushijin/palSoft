@@ -3,17 +3,6 @@
 #define PAL_DEFINE_H
 
 #include <stdint.h>
-#include <Windows.h>
-#include <string>
-#include <vector>
-#include <list>
-#include <unordered_map>
-#include <io.h>
-#include <chrono>
-#include <thread>
-#include <future>
-#include <stdio.h>
-#include <ShlObj.h>
 
 #define PAL_ARCHIVE_CONTENTS_OFFSET 0x804
 #define PAL_SCRIPT_NULL 0x0FFFFFFF
@@ -160,17 +149,7 @@ constexpr uint32_t musicStrSetRefer[11] = { 0x10008,0x40000000,0x40000000,0x1000
 constexpr uint32_t cgStrSetRefer[11] = { 0x10008,0x40000000,0x40000000,0x10001,0x40000000,0x508A0000,0x1001F,0x40000000,0x10017,0x120009,0x0 };
 constexpr uint32_t scrollRollSetRefer[5] = { 0x10001,0x40000000,0x80000001,0x1001F,0x40000000 };
 
-//----------------------------------------------------------------------------------
 
-bool palPackgeExtract(char const* const targetArchive, char const* const extractPath);
-
-bool palPackageCreate(char const* const source, char const* const createPackage, bool checkSumSwitch = false);
-
-bool palStringExtract(char const* const source, char const* const extractPath);
-
-bool palStringImport(char const* const dataPath, char const* const scenarioPath, char const* const createPath);
-
-extern bool dataFileTransform(char const* target, bool decryptSwitch);
 
 #endif // PAL_DEFINE_H
 

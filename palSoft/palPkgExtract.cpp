@@ -3,15 +3,13 @@
 #pragma warning(disable:6387 6031 6054)
 
 #include "palDefine.h"
+#include "palFunc.h"
 #include "palUtils.h"
 
-/**
- * @brief 导出封包文件到指定目录
- * @param targetArchivec
- * @param extractPath
- * @param dataFileDecrypt
- * @return
-*/
+#include <Windows.h>
+#include <vector>
+#include <ShlObj.h>
+
 bool palPackgeExtract(char const* const targetArchive, char const* const extractPath)
 {
 

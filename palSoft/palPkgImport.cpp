@@ -3,7 +3,10 @@
 #pragma warning(disable:6387 6031)
 
 #include "palDefine.h"
+#include "palFunc.h"
 #include "palUtils.h"
+
+#include <vector>
 
 struct palImportObject
 {
@@ -52,7 +55,7 @@ bool palPackageCreate(char const* const source, char const* const createPackage,
 
 	fwrite(charIndex, sizeof(charIndex), 1, archive);
 
-	std::list<std::string> files = getDirFiles(source, "\\*.*");
+	std::forward_list<std::string> files = getDirFiles(source, "\\*.*");
 	std::list<palImportObject> objects;
 	std::vector<palContentsEntry> entries;
 	size_t entryCount = 0;

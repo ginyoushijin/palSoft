@@ -2,17 +2,16 @@
 
 #pragma warning(disable:6387 6031 6054)
 
-#include "palUtils.h"
+#include <vector>
 
-/**
- * @brief 查找指定路径一级目录下的文件
- * @param source 源目录
- * @param filter 查找条件
- * @return 查找到的文件集
-*/
-std::list<std::string> getDirFiles(char const* source, char const* filter)
+#include "palFunc.h"
+#include "palUtils.h"
+#include "palDefine.h"
+
+//C++17的filesystem不是很方便，所以没用
+std::forward_list<std::string> getDirFiles(char const* source, char const* filter)
 {
-	std::list<std::string> files;
+	std::forward_list<std::string> files;
 	std::string currentPath;
 	_finddata64i32_t findData;
 	intptr_t findHandle = NULL;
@@ -26,7 +25,7 @@ std::list<std::string> getDirFiles(char const* source, char const* filter)
 
 	do
 	{
-		if (findData.attrib & _A_ARCH) files.emplace_back(findData.name);
+		if (findData.attrib & _A_ARCH) files.emplace_front(std::move(findData.name));
 
 	} while (!_findnext64i32(findHandle, &findData));
 

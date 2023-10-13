@@ -3,63 +3,112 @@
 #pragma warning(disable:6387 6031)
 
 #include "palDefine.h"
+#include "palFunc.h"
 #include "palUtils.h"
+
+#include <future>
+#include <unordered_map>
 
 using fileTextPair = std::pair<std::string, std::list<std::string>>;
 
-/**
- * @brief 获取指定文件中的所有翻译文本
- * @param fileName 读取文件的文件名
- * @param stream 读取文件的文件指针
- * @return 文件名与翻译文本集合
-*/
-fileTextPair getScenarioText(std::string fileName, FILE* stream)
-{
-	char buffer[0x200] = { 0 };
-	std::list<std::string> texts;
+uint32_t strCount = 0;	//Text.dat中字符串的计数
+std::vector<std::string> allStrings;	//Text.dat中所有字符串的集合
+std::vector<uint32_t> datOrdToPosMap;	//依照字符集编号获取新坐标
+std::unordered_map<uint32_t, uint32_t> datPosToOrdMap;	//保存旧字符集偏移-序号的映射集合
+std::unordered_map<std::string, std::list<std::string>> textList;	//翻译文本目录中，所有文本文件及其翻译文本的集合
+std::list<std::string> currentScenarioTexts;	//当前剧本的文本
+std::list<std::string> selectTexts;	//选项分支文本，单独拿出
+std::list<std::string> hoverTexts;	//鼠标hover按钮时的提示语句文本，单独拿出
 
-	while (!feof(stream))
-	{
-		fgets(buffer, sizeof(buffer), stream);
-		//gb2312 的 '★'
-		if (*(uint16_t*)buffer == 0xEFA1 && buffer[1] == buffer[8])
-		{
-			*strrchr(buffer, '\n') = 0;
-			texts.emplace_back(buffer + 9);
-		}
-	}
+void readAllStringFromTextDat(FILE* origTextDat);
 
-	fclose(stream);
+void readAllFileTextFromDirectory(char* const fileFullPath, char* const nameSectionPointer, char const* const scenarioPath);
 
-	return std::make_pair(std::move(fileName), std::move(texts));
-}
+void replaceOrgTextToTranText(FILE* origTextDat, FILE* origScriptSrc);
 
-/**
- * @brief 借由原script.src与text.dat将文本导入，并生成新的script.src与text.dat
- * @param source 源script.src与text.dat所在路径
- * @param scenarioPath 文本路径
- * @param createPath 导入后script.src与text.dat的生成路径
- * @return 导入结果
-*/
+void WriteToNewTextDat(FILE* newTextDat);
+
+void WriteToNewScriptSrc(FILE* origTextDat, FILE* origScriptSrc, FILE* newScriptSrc);
+
+fileTextPair getScenarioText(std::string fileName, FILE* stream);
+
+
 bool palStringImport(char const* const dataPath, char const* const scenarioPath, char const* const createPath)
 {
 	if (!dataPath || !scenarioPath || !createPath) return false;
 
 	char fileFullPath[_MAX_PATH] = { 0 };
+	char* nameSectionPointer = nullptr;	//
 	FILE* origScriptSrc = nullptr;
 	FILE* origTextDat = nullptr;
-	char* nameSectionPointer = nullptr;
+	FILE* newScriptSrc = nullptr;
+	FILE* newTextDat = nullptr;
 
 	strcpy(fileFullPath, dataPath);
 	strcat(fileFullPath, "\\");
 	nameSectionPointer = strrchr(fileFullPath, '\\') + 1;
 
-	if (!tryDataFileOpen(fileFullPath, nameSectionPointer, &origScriptSrc, &origTextDat)) return false;
+	if (!tryDataFileOpen(fileFullPath, nameSectionPointer, &origScriptSrc, &origTextDat)) return false;	//尝试打开源SCRIPT.SRC与TEXT.DAT
 
+	readAllStringFromTextDat(origTextDat);	//读取源TEXT.DAT中的所有字符串到allStrings中
+
+	strcpy(fileFullPath, scenarioPath);	//设置翻译文本的路径
+	strcat(fileFullPath, "\\");
+	nameSectionPointer = strrchr(fileFullPath, '\\') + 1;	//更新nameSectionPointer
+
+	readAllFileTextFromDirectory(fileFullPath,nameSectionPointer,scenarioPath);	//读取翻译文本
+
+	replaceOrgTextToTranText(origTextDat,origScriptSrc);	//将翻译过的文本替换到allStrings中
+
+	strcpy(fileFullPath, createPath);	//设置导入后SCRIPT.SRC与TEXT.DAT的导出路径
+	strcat(fileFullPath, "\\");
+	nameSectionPointer = strrchr(fileFullPath, '\\') + 1;	//更新nameSectionPointer
+	strcpy(nameSectionPointer, "TEXT.DAT");
+	newTextDat = fopen(fileFullPath, "wb+");	//尝试创建导入后的TEXT.DAT
+
+	if (!newTextDat)
+	{
+		printf("ERROR : imported TEXT.DAT create failed\n");
+		fclose(origTextDat);
+		fclose(origScriptSrc);
+		return false;
+	}
+
+	WriteToNewTextDat(newTextDat);	//为新的TEXT.DAT写入数据
+
+	fclose(newTextDat);
+	newTextDat = nullptr;
+
+	dataFileTransform(fileFullPath, false);	//新的TEXT.DAT需要加密，偷懒直接用文件了
+	
+	strcpy(nameSectionPointer, "SCRIPT.SRC");
+	newScriptSrc = fopen(fileFullPath, "wb+"); //尝试创建导入后的SCRIPT.SRC
+
+	if (!newScriptSrc)
+	{
+		printf("ERROR : imported SCRIPT.SRC create failed\n");
+		fclose(origTextDat);
+		fclose(origTextDat);
+		return false;
+	}
+
+	WriteToNewScriptSrc(origTextDat,origScriptSrc,newScriptSrc);	////为新的SCRIPT.SRC写入数据
+
+	if(newScriptSrc) fclose(newScriptSrc);
+	if(origScriptSrc) fclose(origScriptSrc);
+	if (origTextDat) fclose(origTextDat);
+	printf("COMPELETED : import sucess \n");
+
+	return true;
+}
+
+/**
+ * @brief 读取源TEXT.DAT的所有文本至allStrings中
+ * @param origTextDat 源TEXT.DAT的stream
+*/
+void readAllStringFromTextDat(FILE* origTextDat)
+{
 	char textBuffer[0x200] = { 0 };
-	std::vector<std::string> allStrings;
-	std::unordered_map<uint32_t, uint32_t> datPosToOrdMap;	//保存旧字符集偏移-序号的映射关系
-	uint32_t strCount = 0;
 	uint32_t datStrOrdinal = 0;
 	uint32_t datOrdinalPosition = 0;
 
@@ -75,15 +124,20 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 		fgetc(origTextDat);
 		allStrings.emplace_back(textBuffer);
 	}
+}
 
-	std::list<std::string> files = getDirFiles(scenarioPath, "\\*.txt");
-	std::unordered_map<std::string, std::list<std::string>> textList;
+/**
+ * @brief 读取翻译目录下所有文本文件的翻译文本
+ * @param fileFullPath 
+ * @param nameSectionPointer 
+ * @param scenarioPath 翻译路径
+*/
+void readAllFileTextFromDirectory(char* const fileFullPath,char* const nameSectionPointer,char const* const scenarioPath)
+{
+	std::forward_list<std::string> files = getDirFiles(scenarioPath, "\\*.txt");	//获取一级目录下所有的txt文件
 	std::vector<std::future<fileTextPair>> tasks;
 	uint32_t maxThreads = std::thread::hardware_concurrency();
 
-	strcpy(fileFullPath, scenarioPath);
-	strcat(fileFullPath, "\\");
-	nameSectionPointer = strrchr(fileFullPath, '\\') + 1;
 	tasks.reserve(maxThreads);
 
 	while (!files.empty())	//获取所有翻译文本中的翻译字符串，并加入至map中
@@ -113,23 +167,27 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 		}
 
 		for (std::future<fileTextPair>& task : tasks) textList.emplace(std::move(task.get()));
-
 	}
+	
+}
 
+/**
+ * @brief 替换allstrings中被翻译过的文本
+ * @param origTextDat 源TEXT.DAT的stream	 读取被翻译文本的序号用
+ * @param origScriptSrc 源SCRIPT.SRC的stream 确定需要被翻译的文本用
+*/
+void replaceOrgTextToTranText(FILE* origTextDat, FILE* origScriptSrc)
+{
+	char scenarioName[0x40] = { 0 };
+	uint32_t ordinalInAllStr = 0;
+	bool scenarioSwitch = false;
+	std::string selectLine;	//一次分支的所有选项
 	textRenderParamter textParam;
 	scenarioCheckParamter scenaParam;
 	selectBranchSetParamter selectParam;
 	configLoadParamter configParam;
 	debugStrSetParamter debugStrParam;
 	buttonHoverSignature hoverSig;
-	char scenarioName[0x40] = { 0 };
-	std::list<std::string> currentScenarioTexts;
-	std::list<std::string> selectTexts;
-	std::list<std::string> hoverTexts;
-	uint32_t opcode = 0;
-	uint32_t ordinalInAllStr = 0;
-	bool scenarioSwitch = false;
-	std::string selectLine;
 
 	fseek(origScriptSrc, 8, SEEK_CUR);
 
@@ -145,7 +203,7 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 		textList.erase("hover.txt");
 	}
 
-	while (!feof(origScriptSrc))	//导入翻译文本，替换字符集
+	for (uint32_t opcode = 0; !feof(origScriptSrc);)	//导入翻译文本，替换字符集
 	{
 		fread(&opcode, 4, 1, origScriptSrc);
 		switch (opcode)
@@ -264,22 +322,15 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 			default: break;
 		}
 	}
+}
 
 
-	strcpy(fileFullPath, createPath);
-	strcat(fileFullPath, "\\");
-	nameSectionPointer = strrchr(fileFullPath, '\\') + 1;
-	strcpy(nameSectionPointer, "TEXT.DAT");
-
-	std::vector<uint32_t> datOrdToPosMap;	//依照字符集编号获取新坐标
-	FILE* newTextDat = fopen(fileFullPath, "wb+");
-
-	if (!newTextDat)
-	{
-		printf("ERROR : imported TEXT.DAT create failed\n");
-		fclose(origTextDat);
-		fclose(origScriptSrc);
-	}
+/**
+ * @brief 将被替换过的allstrings的字符串写入新的TEXT.DAT中，同时会将新string的起始位置记入datOrdToPosMap中
+ * @param newTextDat 新TEXT.DAT的stream
+*/
+void WriteToNewTextDat(FILE* newTextDat)
+{
 
 	datOrdToPosMap.reserve(strCount);
 	fwrite(textHeader, sizeof(textHeader), 1, newTextDat);
@@ -292,36 +343,38 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 		fwrite(allStrings[i].c_str(), allStrings[i].size(), 1, newTextDat);
 		fputc(0, newTextDat);
 	}
-	fclose(newTextDat);
-	dataFileTransform(fileFullPath, false);
+}
 
-	strcpy(nameSectionPointer, "SCRIPT.SRC");
-
+/**
+ * @brief 更新翻译文本后，将新的字符串位置写入新的SCRIPT.SRC
+ * @param origTextDat	源TEXT.DAT的stream 获取字符串序号用
+ * @param origScriptSrc 源SCRIPT.SRC的stream 重写参照
+ * @param newScriptSrc  新SCRIPT.SRC的stream
+ * @warning 由于并不会更新所有字符串的位置，所以不保证能完美允许
+*/
+void WriteToNewScriptSrc(FILE* origTextDat,FILE* origScriptSrc,FILE* newScriptSrc)
+{
 	char scriptHeader[0xC] = { 0 };
-	size_t origScriptSize = ftell(origScriptSrc);
-	FILE* newScriptSrc = fopen(fileFullPath, "wb+");
-
-	if (!newScriptSrc)
-	{
-		printf("ERROR : imported SCRIPT.SRC create failed\n");
-		fclose(origTextDat);
-		fclose(origTextDat);
-		return false;
-	}
+	size_t origScriptSize = ftell(origScriptSrc);	//源SCRIPT.SRC的size，新的SCRIPT.SRC的size不应该超过它
+	textRenderParamter textParam;
+	scenarioCheckParamter scenaParam;
+	selectBranchSetParamter selectParam;
+	configLoadParamter configParam;
+	debugStrSetParamter debugStrParam;
+	buttonHoverSignature hoverSig;
+	dynamicStrSignature dynamicSig;
+	scrollRollStrSignature scrollSig;
+	doubleParamterCommand callCommandBuffer;
 
 	rewind(origScriptSrc);
 	fread(scriptHeader, sizeof(scriptHeader), 1, origScriptSrc);
 	fwrite(scriptHeader, sizeof(scriptHeader), 1, newScriptSrc);
 
-	dynamicStrSignature dynamicSig;
-	scrollRollStrSignature scrollSig;
-	doubleParamterCommand callCommandBuffer;
-
-	while (ftell(newScriptSrc) < origScriptSize)	//替换script.src中涉及到text.dat的参数
+	for (uint32_t opcode = 0; ftell(newScriptSrc) < origScriptSize;)
 	{
 		fread(&opcode, 4, 1, origScriptSrc);
 
-		switch (opcode)
+		switch (opcode)	//分析脚本opcode采取不同操作
 		{
 			case vmOpcode::VariableAssignment:
 			{
@@ -484,11 +537,30 @@ bool palStringImport(char const* const dataPath, char const* const scenarioPath,
 			}
 		}
 	}
+}
 
-	fclose(newScriptSrc);
-	fclose(origTextDat);
-	fclose(origScriptSrc);
-	printf("COMPELETED : import sucess \n");
+/**
+ * @brief 获取指定文件中的所有翻译文本
+ * @param fileName 读取文件的文件名
+ * @param stream 读取文件的文件指针
+ * @return 文件名与翻译文本集合
+*/
+fileTextPair getScenarioText(std::string fileName, FILE* stream)
+{
+	char buffer[0x200] = { 0 };
+	std::list<std::string> texts;
 
-	return true;
+	while (!feof(stream))
+	{
+		fgets(buffer, sizeof(buffer), stream);
+		if (*(uint16_t*)buffer == 0xEFA1  /* gb2312 的 '★' */ && buffer[1] == buffer[8])
+		{
+			*strrchr(buffer, '\n') = 0;
+			texts.emplace_back(buffer + 9);
+		}
+	}
+
+	fclose(stream);
+
+	return std::make_pair(std::move(fileName), std::move(texts));
 }
